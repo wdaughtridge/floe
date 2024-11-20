@@ -11,7 +11,7 @@ defmodule FloeWeb.Router do
   end
 
   pipeline :api do
-    plug :accepts, ["json"]
+    plug :accepts, ["json", "sdp"]
   end
 
   scope "/", FloeWeb do

@@ -11,6 +11,10 @@ config :floe,
   ecto_repos: [Floe.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :mime, :types, %{
+  "application/sdp" => ["sdp"]
+}
+
 # Configures the endpoint
 config :floe, FloeWeb.Endpoint,
   url: [host: "localhost"],

@@ -1,0 +1,16 @@
+[package]
+name = "floe_sfu"
+version = "0.1.0"
+authors = []
+edition = "2021"
+
+[lib]
+name = "floe_sfu"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.34"
+tokio = { version = "1", features = ["full"] }
+str0m = "0.6"
+bytes = "1"

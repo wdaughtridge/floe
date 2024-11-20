@@ -1,0 +1,3 @@
+[workspace]
+members = ["native/floe_sfu"]
+resolver = "2"
