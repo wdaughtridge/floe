@@ -17,6 +17,7 @@ defmodule Floe.Application do
       # Start a worker by calling: Floe.Worker.start_link(arg)
       # {Floe.Worker, arg},
       # Start to serve requests, typically the last entry
+      {Floe.Registry, name: Floe.Registry},
       FloeWeb.Endpoint
     ]
 

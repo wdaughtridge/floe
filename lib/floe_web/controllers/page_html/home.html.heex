@@ -1,9 +1,19 @@
+<h1>Floe</h1>
+<button
+  id="cam"
+  class="rounded-lg bg-zinc-100 px-2 py-1 hover:bg-zinc-200/80"
+  onClick="startRtc()"
+>
+  WHEP
+</button>
+<video id="videoPlayer" autoplay controls muted></video>
 <script>
   let rtc = new RTCPeerConnection();
   const videoPlayer = document.getElementById("videoPlayer");
 
   async function startRtc() {
     rtc.ontrack = event => console.log("Track event: " + event.streams[0]);
+    rtc.ontrack = event => videoPlayer.srcObject = event.streams[0];
     rtc.onicegatheringstatechange = () => console.log("Gathering state change: " + rtc.iceGatheringState);
     rtc.onconnectionstatechange = () => console.log("Connection state change: " + rtc.connectionState);
 
@@ -17,29 +27,21 @@
     // Set offer as local description
     rtc.setLocalDescription(offer);
 
-    // WHIP
-    const res = await fetch('/api/whip', {
+    // WHEP
+    const res = await fetch('/api/whep', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/sdp',
+        'Accept': 'application/sdp',
       },
-      body: JSON.stringify(offer),
+      body: offer.sdp,
     });
 
-    // WHIP response
-    const answer = await res.json();
+    // WHEP response
+    const answer = await res.text();
 
     // Set answer as remote description
-    rtc.setRemoteDescription(answer);
-    console.log(answer.sdp.split('\r\n'));
+    rtc.setRemoteDescription({type: 'answer', sdp: answer});
+    console.log(answer.split('\r\n'));
   }
 </script>
-<h1>Floe</h1>
-<button
-  id="cam"
-  class="rounded-lg bg-zinc-100 px-2 py-1 hover:bg-zinc-200/80"
-  onClick="startRtc()"
->
-  WHIP
-</button>
-<video id="videoPlayer" autoplay controls muted></video>

@@ -24,6 +24,7 @@ defmodule FloeWeb.Router do
     pipe_through :api
 
     post "/whip", ApiController, :whip
+    post "/whep", ApiController, :whep
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
