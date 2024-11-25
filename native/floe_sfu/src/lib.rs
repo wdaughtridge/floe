@@ -22,7 +22,7 @@ rustler::atoms! {
     error,  // :error
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum ClientType {
     Whip,
     Whep,
@@ -107,14 +107,22 @@ fn put_new_client(
 async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
     // tx2 goes to WHIP client (how it forwards new media data)
     // rx2 goes to WHEP clients (how clients then receive forwarded media data)
-    let (tx2, rx2) = tokio::sync::broadcast::channel::<std::sync::Arc<str0m::media::MediaData>>(16);
+    let (tx2, rx2) = tokio::sync::broadcast::channel(1024);
+
+    let (tx3, rx3) = tokio::sync::broadcast::channel(16);
 
     loop {
         match rx.recv().await {
             Some(SdpHandshake(client_type, sdp_offer, tx)) => {
                 let tx2 = tx2.clone();
                 let rx2 = rx2.resubscribe();
-                spawn(handle_sdp_offer(client_type, sdp_offer, tx, tx2, rx2));
+
+                let tx3 = tx3.clone();
+                let rx3 = rx3.resubscribe();
+
+                let (rtc, socket) = process_sdp(sdp_offer, tx).await.unwrap();
+
+                spawn(handler(rtc, socket, client_type, tx2, rx2, tx3, rx3));
             }
 
             None => break,
@@ -122,23 +130,17 @@ async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
     }
 }
 
-async fn handle_sdp_offer(
-    client_type: ClientType,
+async fn process_sdp(
     sdp_offer: str0m::change::SdpOffer,
     tx: tokio::sync::oneshot::Sender<str0m::change::SdpAnswer>,
-    tx2: tokio::sync::broadcast::Sender<std::sync::Arc<str0m::media::MediaData>>,
-    mut rx2: tokio::sync::broadcast::Receiver<std::sync::Arc<str0m::media::MediaData>>,
-) -> Result<(), std::io::Error> {
+) -> Result<(str0m::Rtc, tokio::net::UdpSocket), std::io::Error> {
     // create the connection
     let mut rtc = str0m::Rtc::new();
-
     // socket stuff
     let socket = tokio::net::UdpSocket::bind("10.0.0.60:0")
         .await
         .expect("binding a random udp port");
     let addr = socket.local_addr().expect("a local socket adddress");
-
-    println!("addr {addr}");
 
     // local candidate
     // no trickle ice on SFU side for WHIP/WHEP
@@ -154,18 +156,88 @@ async fn handle_sdp_offer(
     // to POST request
     tx.send(sdp_answer).expect("sending offer back to parent");
 
+    Ok((rtc, socket))
+}
+
+async fn handler(
+    mut rtc: str0m::Rtc,
+    socket: tokio::net::UdpSocket,
+    client_type: ClientType,
+    tx: tokio::sync::broadcast::Sender<std::sync::Arc<str0m::media::MediaData>>,
+    mut rx: tokio::sync::broadcast::Receiver<std::sync::Arc<str0m::media::MediaData>>,
+    tx2: tokio::sync::broadcast::Sender<bool>,
+    mut rx2: tokio::sync::broadcast::Receiver<bool>,
+) -> Result<(), std::io::Error> {
     let mut buf = Vec::new();
+
+    let mut video_mid: Option<str0m::media::Mid> = None;
+    let mut audio_mid: Option<str0m::media::Mid> = None;
 
     // now we can loop for data
     loop {
+        if client_type == ClientType::Whip {
+            match rx2.try_recv() {
+                Ok(true) => {
+                    if let Some(mid) = video_mid {
+                        let mut writer = rtc.writer(mid).unwrap();
+
+                        writer
+                            .request_keyframe(None, str0m::media::KeyframeRequestKind::Pli)
+                            .unwrap();
+                    }
+                }
+
+                Ok(false) => {}
+
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
+                    panic!("lagged by {n}");
+                }
+
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
+
+                Err(e) => {
+                    eprintln!("{:?} rx2 try_recv {}", client_type, e);
+                }
+            }
+        } else if client_type == ClientType::Whep {
+            match rx.try_recv() {
+                Ok(media_data) => {
+                    let mid = if media_data.time.frequency()
+                        == str0m::media::Frequency::new(90000).unwrap()
+                    {
+                        video_mid
+                    } else {
+                        audio_mid
+                    };
+
+                    if let Some(mid) = mid {
+                        let writer = rtc.writer(mid).unwrap();
+                        let pt = writer.match_params(media_data.params).unwrap();
+                        let media_time = media_data.time;
+                        let wallclock = media_data.network_time;
+
+                        writer
+                            .write(pt, wallclock, media_time, media_data.data.clone())
+                            .unwrap();
+                    }
+                }
+
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
+                    panic!("lagged by {n}");
+                }
+
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
+
+                Err(e) => {
+                    eprintln!("{:?} rx2 try_recv {}", client_type, e);
+                }
+            }
+        }
+
         let timeout = match rtc.poll_output().expect("rtc poll output") {
             str0m::Output::Timeout(v) => v,
 
             str0m::Output::Transmit(v) => {
-                if client_type == ClientType::Whep {
-                    println!("{:?}", v);
-                }
-
                 socket
                     .send_to(&v.contents, v.destination)
                     .await
@@ -182,13 +254,37 @@ async fn handle_sdp_offer(
                 }
 
                 match v {
+                    str0m::Event::PeerStats(e) => {
+                        println!("{:?} {:?}", client_type, e);
+                    }
+
                     str0m::Event::MediaData(media_data) => {
                         if client_type == ClientType::Whip {
-                            tx2.send(media_data.into()).expect("sending media data");
+                            tx.send(media_data.into()).expect("sending media data");
                         }
                     }
 
-                    _ => {}
+                    str0m::Event::MediaAdded(m) => {
+                        println!("{:?} {:?}", client_type, m);
+
+                        match m.kind {
+                            str0m::media::MediaKind::Audio => {
+                                audio_mid = Some(m.mid);
+                            }
+
+                            str0m::media::MediaKind::Video => {
+                                video_mid = Some(m.mid);
+                            }
+                        }
+                    }
+
+                    str0m::Event::KeyframeRequest(_k) => {
+                        tx2.send(true).expect("sending keyframe request");
+                    }
+
+                    e => {
+                        println!("{:?} {:?}", client_type, e);
+                    }
                 }
 
                 continue;
@@ -204,26 +300,6 @@ async fn handle_sdp_offer(
             continue;
         }
 
-        if client_type == ClientType::Whep {
-            match rx2.try_recv() {
-                Ok(media_data) => {
-                    let mid: str0m::media::Mid = media_data.mid;
-                    let writer = rtc.writer(mid).unwrap();
-                    let pt = writer.payload_params().nth(0).unwrap().pt();
-                    let wallclock = std::time::Instant::now();
-                    let media_time = media_data.time;
-
-                    println!("media data {:?}", media_data);
-
-                    writer
-                        .write(pt, wallclock, media_time, media_data.data.clone())
-                        .unwrap();
-                }
-
-                Err(_) => {}
-            }
-        }
-
         buf.resize(2048, 0);
 
         let input = match socket.recv_from(&mut buf).await {
@@ -232,7 +308,7 @@ async fn handle_sdp_offer(
             Ok((n, source)) => {
                 buf.truncate(n);
 
-                let input = str0m::Input::Receive(
+                str0m::Input::Receive(
                     std::time::Instant::now(),
                     str0m::net::Receive {
                         proto: str0m::net::Protocol::Udp,
@@ -242,9 +318,7 @@ async fn handle_sdp_offer(
                             .expect("local socket address from datagram"),
                         contents: buf.as_slice().try_into().expect("rtc input contents"),
                     },
-                );
-
-                input
+                )
             }
 
             Err(_) => continue,
