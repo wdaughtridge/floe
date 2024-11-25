@@ -1,4 +1,8 @@
-<button id="cam" class="rounded-lg bg-zinc-100 px-2 py-1 hover:bg-zinc-200/80" onClick="startRtc()">
+<button
+  id="cam"
+  class="rounded-lg bg-zinc-100 px-2 py-1 hover:bg-zinc-200/80"
+  onClick="startRtcWhep()"
+>
   WHEP
 </button>
 
@@ -9,7 +13,7 @@
 
   const byId = (id) => document.getElementById(id);
 
-  async function startRtc() {
+  async function startRtcWhep() {
     rtc.ontrack = (e) => {
         console.log('ontrack', e.track);
         const track = e.track;

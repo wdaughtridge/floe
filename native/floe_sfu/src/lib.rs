@@ -105,10 +105,7 @@ fn put_new_client(
 }
 
 async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
-    // tx2 goes to WHIP client (how it forwards new media data)
-    // rx2 goes to WHEP clients (how clients then receive forwarded media data)
     let (tx2, rx2) = tokio::sync::broadcast::channel(1024);
-
     let (tx3, rx3) = tokio::sync::broadcast::channel(16);
 
     loop {
