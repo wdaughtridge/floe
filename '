@@ -107,7 +107,7 @@ fn put_new_client(
 
 async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
     // socket stuff
-    let socket = tokio::net::UdpSocket::bind("0.0.0.0:0")
+    let socket = tokio::net::UdpSocket::bind("10.0.0.60:0")
         .await
         .expect("binding a random udp port");
     let addr = socket.local_addr().expect("a local socket adddress");
@@ -173,7 +173,7 @@ async fn run(
         clients.retain(|c| c.rtc.is_alive());
 
         if let Some(mut client) = spawn_new_client(&mut rx).await {
-            // println!("new client {:?}", client);
+            println!("new client {:?}", client);
             for track in clients.iter().flat_map(|c| c.tracks_in.iter()) {
                 let weak = std::sync::Arc::downgrade(&track.id);
                 client.handle_track_open(weak).await;
@@ -197,7 +197,7 @@ async fn run(
             if let Some(client) = clients.iter_mut().find(|c| c.accepts(&input)) {
                 client.handle_input(input);
             } else {
-                // println!("no client accepts input {:?}", input);
+                println!("no client accepts input {:?}", input);
             }
         }
 
@@ -216,6 +216,8 @@ async fn spawn_new_client(rx: &mut tokio::sync::mpsc::Receiver<str0m::Rtc>) -> O
     }
 }
 
+/// Poll all the output from the client until it returns a timeout.
+/// Collect any output in the queue, transmit data on the socket, return the timeout
 async fn poll_until_timeout(
     client: &mut Client,
     queue: &mut std::collections::VecDeque<Propagated>,
@@ -223,6 +225,7 @@ async fn poll_until_timeout(
 ) -> std::time::Instant {
     loop {
         if !client.rtc.is_alive() {
+            // This client will be cleaned up in the next run of the main loop.
             return std::time::Instant::now();
         }
 
@@ -236,22 +239,30 @@ async fn poll_until_timeout(
     }
 }
 
+/// Sends one "propagated" to all clients, if relevant
 async fn propagate(propagated: &Propagated, clients: &mut [Client]) {
+    // Do not propagate to originating client.
     let Some(client_id) = propagated.client_id() else {
+        // If the event doesn't have a client id, it can't be propagated,
+        // (it's either a noop or a timeout).
         return;
     };
 
     for client in &mut *clients {
         if client.id == client_id {
+            // Do not propagate to originating client.
             continue;
         }
 
         match &propagated {
             Propagated::TrackOpen(_, track_in) => {
+                println!("track open {:?}", track_in);
+
                 client.handle_track_open(track_in.clone()).await
             }
-            Propagated::MediaData(_, data) => client.handle_media_data_out(data).await,
+            Propagated::MediaData(_, data) => client.handle_media_data_out(client_id, data).await,
             Propagated::KeyframeRequest(_, req, origin, mid_in) => {
+                // Only one origin client handles the keyframe request.
                 if *origin == client.id {
                     client.handle_keyframe_request(*req, *mid_in).await
                 }
@@ -271,6 +282,8 @@ async fn read_socket_input<'a>(
         Ok((n, source)) => {
             buf.truncate(n);
 
+            // Parse data to a DatagramRecv, which help preparse network data to
+            // figure out the multiplexing of all protocols on one UDP port.
             let Ok(contents) = buf.as_slice().try_into() else {
                 return None;
             };
@@ -287,7 +300,7 @@ async fn read_socket_input<'a>(
         }
 
         Err(e) => match e.kind() {
-            _ => panic!("socket read failed {e}"),
+            _ => panic!("UdpSocket read failed: {e:?}"),
         },
     }
 }
@@ -296,6 +309,7 @@ async fn read_socket_input<'a>(
 struct Client {
     id: ClientId,
     rtc: str0m::Rtc,
+    pending: Option<str0m::change::SdpPendingOffer>,
     cid: Option<str0m::channel::ChannelId>,
     tracks_in: Vec<TrackInEntry>,
     tracks_out: Vec<TrackOut>,
@@ -355,6 +369,7 @@ impl Client {
         Client {
             id: ClientId(next_id),
             rtc,
+            pending: None,
             cid: None,
             tracks_in: vec![],
             tracks_out: vec![],
@@ -421,7 +436,7 @@ impl Client {
                     Propagated::Noop
                 }
                 str0m::Event::MediaAdded(e) => {
-                    // println!("{:?}", e);
+                    println!("{:?}", e);
 
                     self.handle_media_added(e.mid, e.kind).await
                 }
@@ -435,15 +450,15 @@ impl Client {
 
                 // NB: To see statistics, uncomment set_stats_interval() above.
                 str0m::Event::MediaIngressStats(data) => {
-                    // println!("{:?}", data);
+                    println!("{:?}", data);
                     Propagated::Noop
                 }
                 str0m::Event::MediaEgressStats(data) => {
-                    // println!("{:?}", data);
+                    println!("{:?}", data);
                     Propagated::Noop
                 }
                 str0m::Event::PeerStats(data) => {
-                    // println!("{:?}", data);
+                    println!("{:?}", data);
                     Propagated::Noop
                 }
                 _ => Propagated::Noop,
@@ -540,7 +555,7 @@ impl Client {
         self.tracks_out.push(track_out);
     }
 
-    async fn handle_media_data_out(&mut self, data: &str0m::media::MediaData) {
+    async fn handle_media_data_out(&mut self, origin: ClientId, data: &str0m::media::MediaData) {
         let Some(mid) = self
             .tracks_out
             .iter()
@@ -591,7 +606,7 @@ impl Client {
         };
 
         if let Err(e) = writer.write(pt, data.network_time, data.time, data.data.clone()) {
-            // println!("client {} failed {:?}", *self.id, e);
+            println!("client {} failed {:?}", *self.id, e);
             self.rtc.disconnect();
         } 
     }
@@ -614,7 +629,7 @@ impl Client {
 
         if let Err(e) = writer.request_keyframe(req.rid, req.kind) {
             // This can fail if the rid doesn't match any media.
-            // println!("request_keyframe failed: {:?}", e);
+            println!("request_keyframe failed: {:?}", e);
         }
     }
 }

@@ -24,6 +24,11 @@ FROM ${BUILDER_IMAGE} as builder
 RUN apt-get update -y && apt-get install -y build-essential git \
     && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
+# Get Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+RUN echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
+
 # prepare build dir
 WORKDIR /app
 

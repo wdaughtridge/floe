@@ -1,10 +1,14 @@
-<button
-  id="cam"
-  class="rounded-lg bg-zinc-100 px-2 py-1 hover:bg-zinc-200/80"
-  onClick="startRtcWhep()"
->
-  WHEP
-</button>
+<div class="preference">
+  <label for="token" class="mr-2">Stream Token:</label>
+  <input type="text" class="rounded-lg" name="token" id="token" />
+  <button
+    id="cam"
+    class="rounded-lg bg-zinc-100 ml-2 px-5 py-2 hover:bg-zinc-200/80"
+    onClick="startRtcWhep()"
+  >
+    Join
+  </button>
+</div>
 
 <div id="media"></div>
 
@@ -56,12 +60,21 @@
     // Set offer as local description
     rtc.setLocalDescription(offer);
 
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+    const stream_id = urlParams.get('stream_id');
+
+    const token = byId("token").value;
+    const bearer = `Bearer ${token}`;
+
     // WHEP
-    const res = await fetch('/api/whep', {
+    const res = await fetch(`/api/whep?stream_id=${stream_id}`, {
+      credentials: 'include',
       method: 'POST',
       headers: {
         'Content-Type': 'application/sdp',
         'Accept': 'application/sdp',
+        'Authorization': bearer,
       },
       body: offer.sdp,
     });
