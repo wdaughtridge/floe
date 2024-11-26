@@ -107,7 +107,7 @@ fn put_new_client(
 
 async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
     // socket stuff
-    let socket = tokio::net::UdpSocket::bind(format!("{}:0", std::env::var("IP").expect("ip env")))
+    let socket = tokio::net::UdpSocket::bind(format!("{}:0", std::env::var("FLY_PUBLIC_IP").expect("ip env")))
         .await
         .expect("binding a random udp port");
     let addr = socket.local_addr().expect("a local socket adddress");
