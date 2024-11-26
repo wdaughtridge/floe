@@ -8,19 +8,19 @@ defmodule Floe.Registry do
 
   @impl true
   def init(_params) do
-    :ets.new(:streams, [:named_table, read_concurrency: true])
+    :ok = :syn.add_node_to_scopes([:streams])
     {:ok, %{}}
   end
 
   @impl true
   def handle_call({:lookup, stream_id}, _from, state) do
-    stream_info = :ets.lookup(:streams, stream_id)
+    {_pid, stream_info} = :syn.lookup(:streams, stream_id)
     {:reply, stream_info, state}
   end
 
   @impl true
   def handle_cast({:insert, stream_id, stream_handle}, state) do
-    :ets.insert(:streams, {stream_id, stream_handle})
+    :syn.register(:streams, stream_id, self(), [stream_handle: stream_handle])
     {:noreply, state}
   end
 

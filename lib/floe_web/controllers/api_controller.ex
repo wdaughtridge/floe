@@ -25,8 +25,9 @@ defmodule FloeWeb.ApiController do
     # stream id
     {:ok, sdp_offer, conn} = Plug.Conn.read_body(conn)
 
-    [response | _rest] = GenServer.call(Floe.Registry, {:lookup, stream_id})
-    {stream_id, link} = response
+    response = GenServer.call(Floe.Registry, {:lookup, stream_id})
+    link = response[:stream_handle]
+
     {:ok, sdp_answer} = Floe.SFU.put_new_whep_client(sdp_offer, link)
 
     conn
