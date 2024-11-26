@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for floe-muddy-surf-4480 on 2024-11-25T14:53:06-05:00
+# fly.toml app configuration file generated for floe on 2024-11-26T09:01:09-05:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'floe-muddy-surf-4480'
+app = 'floe'
 primary_region = 'iad'
 kill_signal = 'SIGTERM'
 
@@ -13,7 +13,7 @@ kill_signal = 'SIGTERM'
   release_command = '/app/bin/migrate'
 
 [env]
-  PHX_HOST = 'floe-muddy-surf-4480.fly.dev'
+  PHX_HOST = 'floe.fly.dev'
   PORT = '8080'
 
 [http_service]

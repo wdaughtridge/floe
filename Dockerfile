@@ -13,10 +13,10 @@
 #
 ARG ELIXIR_VERSION=1.17.3
 ARG OTP_VERSION=27.1.2
-ARG DEBIAN_VERSION=bullseye-20241111-slim
+ARG UBUNTU_VERSION=noble-20241015
 
-ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
-ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
+ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-ubuntu-${UBUNTU_VERSION}"
+ARG RUNNER_IMAGE="ubuntu:${UBUNTU_VERSION}"
 
 FROM ${BUILDER_IMAGE} as builder
 
@@ -57,6 +57,8 @@ COPY lib lib
 
 COPY assets assets
 
+COPY native native
+
 # compile assets
 RUN mix assets.deploy
 
@@ -74,7 +76,7 @@ RUN mix release
 FROM ${RUNNER_IMAGE}
 
 RUN apt-get update -y && \
-    apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates \
+    apt-get install -y libstdc++6 openssl libncurses6 locales ca-certificates \
     && apt-get clean && rm -f /var/lib/apt/lists/*_*
 
 # Set the locale
@@ -89,6 +91,8 @@ RUN chown nobody /app
 
 # set runner ENV
 ENV MIX_ENV="prod"
+ENV ECTO_IPV6 true
+ENV ERL_AFLAGS "-proto_dist inet6_tcp"
 
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/floe ./
