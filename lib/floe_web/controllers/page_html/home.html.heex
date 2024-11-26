@@ -9,28 +9,31 @@
     Join
   </button>
 </div>
-
+<br>
 <div id="media"></div>
 
 <script>
-  let rtc = new RTCPeerConnection();
+let rtc = new RTCPeerConnection();
 
-  const byId = (id) => document.getElementById(id);
+const byId = (id) => document.getElementById(id);
 
-  async function startRtcWhep() {
+async function startRtcWhep() {
     rtc.ontrack = (e) => {
         const track = e.track;
         const domId = `media-${track.id}`;
         const el = document.createElement('video');
+
         if (byId(domId)) {
-            // we aleady have this track
             return;
         }
+
         el.id = domId;
-        el.width = 500;
-        byId('media').appendChild(el);
         el.controls = true;
         el.autoplay = true;
+        el.width = 720;
+
+        byId('media').appendChild(el);
+
         setTimeout(() => {
             const media = new MediaStream();
             media.addTrack(track);
@@ -41,13 +44,15 @@
     rtc.onicegatheringstatechange = () => console.log("Gathering state change: " + rtc.iceGatheringState);
     rtc.onconnectionstatechange = () => console.log("Connection state change: " + rtc.connectionState);
 
-    rtc.addTransceiver("video", { direction: "recvonly" });
-    rtc.addTransceiver("audio", { direction: "recvonly" });
+    rtc.addTransceiver("video", {
+        direction: "recvonly"
+    });
+    rtc.addTransceiver("audio", {
+        direction: "recvonly"
+    });
 
-    // Create offer
     const offer = await rtc.createOffer();
 
-    // Set offer as local description
     rtc.setLocalDescription(offer);
 
     const queryString = window.location.search;
@@ -57,22 +62,22 @@
     const token = byId("token").value;
     const bearer = `Bearer ${token}`;
 
-    // WHEP
     const res = await fetch(`/api/whep?stream_id=${stream_id}`, {
-      credentials: 'include',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/sdp',
-        'Accept': 'application/sdp',
-        'Authorization': bearer,
-      },
-      body: offer.sdp,
+        credentials: 'include',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/sdp',
+            'Accept': 'application/sdp',
+            'Authorization': bearer,
+        },
+        body: offer.sdp,
     });
 
-    // WHEP response
     const answer = await res.text();
 
-    // Set answer as remote description
-    rtc.setRemoteDescription({type: 'answer', sdp: answer});
-  }
+    rtc.setRemoteDescription({
+        type: 'answer',
+        sdp: answer
+    });
+}
 </script>

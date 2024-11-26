@@ -107,9 +107,12 @@ fn put_new_client(
 
 async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
     // socket stuff
-    let socket = tokio::net::UdpSocket::bind(format!("{}:0", std::env::var("FLY_PUBLIC_IP").expect("ip env")))
-        .await
-        .expect("binding a random udp port");
+    let socket = tokio::net::UdpSocket::bind(format!(
+        "{}:0",
+        std::env::var("FLY_PUBLIC_IP").expect("ip env")
+    ))
+    .await
+    .expect("binding a random udp port");
     let addr = socket.local_addr().expect("a local socket adddress");
 
     let (tx2, rx2) = tokio::sync::mpsc::channel(1024);
@@ -247,9 +250,7 @@ async fn propagate(propagated: &Propagated, clients: &mut [Client]) {
         }
 
         match &propagated {
-            Propagated::TrackOpen(_, track_in) => {
-                client.handle_track_open(track_in.clone()).await
-            }
+            Propagated::TrackOpen(_, track_in) => client.handle_track_open(track_in.clone()).await,
             Propagated::MediaData(_, data) => client.handle_media_data_out(data).await,
             Propagated::KeyframeRequest(_, req, origin, mid_in) => {
                 if *origin == client.id {
@@ -562,9 +563,7 @@ impl Client {
                     })
                     .is_some()
             })
-            .and_then(|o| {
-                Some(o.track_in.upgrade().unwrap().mid)
-            })
+            .and_then(|o| Some(o.track_in.upgrade().unwrap().mid))
         else {
             return;
         };
@@ -593,7 +592,7 @@ impl Client {
         if let Err(e) = writer.write(pt, data.network_time, data.time, data.data.clone()) {
             // println!("client {} failed {:?}", *self.id, e);
             self.rtc.disconnect();
-        } 
+        }
     }
 
     async fn handle_keyframe_request(
