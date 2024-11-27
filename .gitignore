@@ -38,3 +38,7 @@ npm-debug.log
 /target/
 
 /priv/native/
+
+/.elixir_ls/
+
+/.idea/

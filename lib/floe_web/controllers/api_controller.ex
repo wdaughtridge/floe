@@ -8,11 +8,14 @@ defmodule FloeWeb.ApiController do
     {:ok, sdp_offer, conn} = Plug.Conn.read_body(conn)
 
     {:ok, link} = Floe.SFU.start_link()
+
+    IO.inspect(link)
+
     :ok = GenServer.cast(Floe.Registry, {:insert, stream_id, link})
     {:ok, sdp_answer} = Floe.SFU.put_new_whip_client(sdp_offer, link)
 
     conn
-    |> Plug.Conn.put_resp_header("location", "/resource/12345")
+    |> Plug.Conn.put_resp_header("location", "/api/resource/" <> stream_id)
     |> Plug.Conn.put_resp_header("content-type", "application/sdp")
     |> Plug.Conn.send_resp(201, sdp_answer)
   end
@@ -31,8 +34,23 @@ defmodule FloeWeb.ApiController do
     {:ok, sdp_answer} = Floe.SFU.put_new_whep_client(sdp_offer, link)
 
     conn
-    |> Plug.Conn.put_resp_header("location", "/resource/" <> stream_id)
+    |> Plug.Conn.put_resp_header("location", "/api/resource/" <> stream_id)
     |> Plug.Conn.put_resp_header("content-type", "application/sdp")
     |> Plug.Conn.send_resp(201, sdp_answer)
+  end
+
+  def resource(conn, params) do
+    stream_id = params["stream_id"]
+
+    {:ok, trickle_ice, conn} = Plug.Conn.read_body(conn)
+
+    response = GenServer.call(Floe.Registry, {:lookup, stream_id})
+    link = response[:stream_handle]
+
+    :ok = Floe.SFU.put_new_remote_candidate(trickle_ice, link)
+
+    conn
+    |> Plug.Conn.resp(204, "")
+    |> Plug.Conn.send_resp()
   end
 end

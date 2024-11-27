@@ -14,7 +14,7 @@ defmodule FloeWeb.Router do
   end
 
   pipeline :api do
-    plug :accepts, ["json", "sdp"]
+    plug :accepts, ["json", "sdp", "trickle-ice-sdpfrag"]
     plug :fetch_api_user
   end
 
@@ -29,6 +29,7 @@ defmodule FloeWeb.Router do
 
     post "/whip", ApiController, :whip
     post "/whep", ApiController, :whep
+    patch "/resource/:stream_id", ApiController, :resource
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development

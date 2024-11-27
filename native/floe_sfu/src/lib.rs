@@ -37,15 +37,21 @@ struct SdpHandshake(
     tokio::sync::oneshot::Sender<str0m::change::SdpAnswer>,
 );
 
-struct Link(tokio::sync::mpsc::Sender<SdpHandshake>);
+struct Link(
+    tokio::sync::mpsc::Sender<SdpHandshake>,
+    tokio::sync::mpsc::Sender<str0m::Candidate>,
+);
 
 // this is a link back to the main loop for a particular
 // stream. this is passed back to the BEAM such that any
 // process with the reference to this can add new WHIP
 // or WHEP clients.
 impl Link {
-    fn new(tx: tokio::sync::mpsc::Sender<SdpHandshake>) -> rustler::ResourceArc<Link> {
-        rustler::ResourceArc::new(Link(tx))
+    fn new(
+        handshake_sender: tokio::sync::mpsc::Sender<SdpHandshake>,
+        candidate_sender: tokio::sync::mpsc::Sender<str0m::Candidate>,
+    ) -> rustler::ResourceArc<Link> {
+        rustler::ResourceArc::new(Link(handshake_sender, candidate_sender))
     }
 }
 
@@ -54,11 +60,12 @@ impl Resource for Link {}
 // entry point probably started by a WHIP client
 #[rustler::nif]
 fn start_link() -> (rustler::Atom, rustler::ResourceArc<Link>) {
-    let (tx, rx) = tokio::sync::mpsc::channel::<SdpHandshake>(16);
+    let (handshake_sender, handshake_receiver) = tokio::sync::mpsc::channel::<SdpHandshake>(16);
+    let (candidate_sender, candidate_receiver) = tokio::sync::mpsc::channel::<str0m::Candidate>(16);
 
-    spawn(main_loop(rx));
+    spawn(main_loop(handshake_receiver, candidate_receiver));
 
-    let link = Link::new(tx);
+    let link = Link::new(handshake_sender, candidate_sender);
 
     // link is passed back to BEAM to register in :ets table
     (ok(), link)
@@ -80,6 +87,31 @@ fn put_new_whep_client(
     put_new_client(ClientType::Whep, sdp_offer, link)
 }
 
+#[rustler::nif]
+fn put_new_remote_candidate(
+    trickle_ice: String,
+    link: rustler::ResourceArc<Link>,
+) -> rustler::Atom {
+    handle_trickle_ice(trickle_ice, link)
+}
+
+fn handle_trickle_ice(trickle_ice: String, link: rustler::ResourceArc<Link>) -> rustler::Atom {
+    match serde_json::from_str::<str0m::Candidate>(&trickle_ice) {
+        Ok(candidate) => {
+            spawn(async move {
+                link.1
+                    .send(candidate)
+                    .await
+                    .expect("sending remote candidate");
+            });
+        }
+
+        Err(_) => {}
+    }
+
+    ok()
+}
+
 fn put_new_client(
     client_type: ClientType,
     sdp_offer: String,
@@ -90,24 +122,31 @@ fn put_new_client(
         str0m::change::SdpOffer::from_sdp_string(&sdp_offer).expect("decoding sdp offer");
 
     // how we get the answer back from the tokio task
-    let (tx, rx) = tokio::sync::oneshot::channel::<str0m::change::SdpAnswer>();
+    let (sdp_sender, sdp_receiver) = tokio::sync::oneshot::channel::<str0m::change::SdpAnswer>();
 
     // start an event loop for this client to receive data
     spawn(async move {
         link.0
-            .send(SdpHandshake(client_type, sdp_offer, tx))
+            .send(SdpHandshake(client_type, sdp_offer, sdp_sender))
             .await
             .expect("sending to main loop");
     });
 
     // get the answer from the spawned task
-    let sdp_answer = rx.blocking_recv().expect("sdp answer from tokio spawn");
+    let sdp_answer = sdp_receiver
+        .blocking_recv()
+        .expect("sdp answer from tokio spawn");
+
+    let sdp_answer = sdp_answer.to_string();
 
     // send back to BEAM so we can include in the POST response body
-    (ok(), sdp_answer.to_string())
+    (ok(), sdp_answer)
 }
 
-async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
+async fn main_loop(
+    mut handshake_receiver: tokio::sync::mpsc::Receiver<SdpHandshake>,
+    mut candidate_receiver: tokio::sync::mpsc::Receiver<str0m::Candidate>,
+) {
     // socket stuff
     let socket = tokio::net::UdpSocket::bind(format!(
         "{}:0",
@@ -117,19 +156,26 @@ async fn main_loop(mut rx: tokio::sync::mpsc::Receiver<SdpHandshake>) {
     .expect("binding a random udp port");
     let addr = socket.local_addr().expect("a local socket adddress");
 
-    let (tx2, rx2) = tokio::sync::mpsc::channel(1024);
+    let (loop_handshake_sender, loop_handshake_receiver) = tokio::sync::mpsc::channel(16);
+    let (loop_candidate_sender, loop_candidate_receiver) = tokio::sync::mpsc::channel(16);
 
-    spawn(run(socket, rx2));
+    spawn(run(
+        socket,
+        loop_handshake_receiver,
+        loop_candidate_receiver,
+    ));
 
     loop {
-        match rx.recv().await {
-            Some(SdpHandshake(_client_type, sdp_offer, tx)) => {
+        match handshake_receiver.try_recv() {
+            Ok(SdpHandshake(_client_type, sdp_offer, tx)) => {
                 let rtc = process_sdp(sdp_offer, addr, tx).await.unwrap();
 
-                tx2.send(rtc).await.unwrap();
+                loop_handshake_sender.send(rtc).await.unwrap();
             }
 
-            None => break,
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+
+            Err(_) => {}
         }
     }
 }
@@ -140,7 +186,7 @@ async fn process_sdp(
     tx: tokio::sync::oneshot::Sender<str0m::change::SdpAnswer>,
 ) -> Result<str0m::Rtc, std::io::Error> {
     // create the connection
-    let mut rtc = str0m::Rtc::builder().set_ice_lite(true).build();
+    let mut rtc = str0m::Rtc::builder().build();
 
     // local candidate
     // no trickle ice on SFU side for WHIP/WHEP
@@ -168,6 +214,7 @@ rustler::init!("Elixir.Floe.SFU", load = load);
 async fn run(
     socket: tokio::net::UdpSocket,
     mut rx: tokio::sync::mpsc::Receiver<str0m::Rtc>,
+    mut rx2: tokio::sync::mpsc::Receiver<str0m::Candidate>,
 ) -> Result<(), str0m::RtcError> {
     let mut clients: Vec<Client> = vec![];
     let mut to_propagate: std::collections::VecDeque<Propagated> =

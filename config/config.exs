@@ -12,7 +12,8 @@ config :floe,
   generators: [timestamp_type: :utc_datetime]
 
 config :mime, :types, %{
-  "application/sdp" => ["sdp"]
+  "application/sdp" => ["sdp"],
+  "application/trickle-ice-sdpfrag" => ["trickle-ice-sdpfrag"]
 }
 
 # Configures the endpoint
@@ -40,7 +41,7 @@ config :esbuild,
   version: "0.17.11",
   floe: [
     args:
-      ~w(js/app.js --bundle --target=es2017 --outdir=../priv/static/assets --external:/fonts/* --external:/images/*),
+      ~w(js/app.js js/rtc.js --bundle --target=es2017 --outdir=../priv/static/assets --external:/fonts/* --external:/images/*),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => Path.expand("../deps", __DIR__)}
   ]
