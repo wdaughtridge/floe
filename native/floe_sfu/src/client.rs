@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use log::error;
+
 #[derive(Debug)]
 pub struct Client {
     pub id: ClientId,
@@ -121,10 +123,17 @@ impl Client {
     ) -> Propagated {
         match output {
             str0m::Output::Transmit(transmit) => {
-                socket
+                match socket
                     .send_to(&transmit.contents, transmit.destination)
                     .await
-                    .expect("sending UDP data");
+                {
+                    Ok(_) => {}
+
+                    Err(e) => {
+                        error!("{e}");
+                    }
+                }
+
                 Propagated::Noop
             }
             str0m::Output::Timeout(t) => Propagated::Timeout(t),

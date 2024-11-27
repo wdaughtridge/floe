@@ -1,7 +1,5 @@
 mod client;
 
-use std::collections::hash_set::SymmetricDifference;
-
 use client::*;
 use log::{error, info};
 use rustler::Resource;
@@ -100,12 +98,15 @@ fn put_new_remote_candidate(
 
 fn handle_trickle_ice(trickle_ice: String, link: rustler::ResourceArc<Link>) -> rustler::Atom {
     match serde_json::from_str::<str0m::Candidate>(&trickle_ice) {
-        Ok(_) => {
+        Ok(candidate) => {
+            info!("new candidate {:?}", candidate);
+
             spawn(async move {
-                link.1
-                    .send(trickle_ice)
-                    .await
-                    .expect("sending remote candidate");
+                match link.1.send(trickle_ice).await {
+                    Ok(_) => {}
+
+                    Err(e) => error!("{e}"),
+                }
             });
         }
 
@@ -174,6 +175,8 @@ async fn main_loop(
         loop {
             match candidate_receiver.recv().await {
                 Some(trickle_ice) => {
+                    info!("new candidate {:?}", trickle_ice);
+
                     loop_candidate_sender.send(trickle_ice).await.unwrap();
                 }
 
@@ -245,7 +248,7 @@ async fn run(
             for client in clients.iter_mut() {
                 // TODO: optimize
                 let candidate = serde_json::from_str::<str0m::Candidate>(&trickle_ice).unwrap();
-
+                info!("new candidate {:?}", candidate);
                 client.handle_new_candidate(candidate);
             }
         }
