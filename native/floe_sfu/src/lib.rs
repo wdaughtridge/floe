@@ -1,6 +1,9 @@
 mod client;
 
+use std::collections::hash_set::SymmetricDifference;
+
 use client::*;
+use log::{error, info};
 use rustler::Resource;
 
 static TOKIO: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
@@ -39,7 +42,7 @@ struct SdpHandshake(
 
 struct Link(
     tokio::sync::mpsc::Sender<SdpHandshake>,
-    tokio::sync::mpsc::Sender<str0m::Candidate>,
+    tokio::sync::mpsc::Sender<String>,
 );
 
 // this is a link back to the main loop for a particular
@@ -49,7 +52,7 @@ struct Link(
 impl Link {
     fn new(
         handshake_sender: tokio::sync::mpsc::Sender<SdpHandshake>,
-        candidate_sender: tokio::sync::mpsc::Sender<str0m::Candidate>,
+        candidate_sender: tokio::sync::mpsc::Sender<String>,
     ) -> rustler::ResourceArc<Link> {
         rustler::ResourceArc::new(Link(handshake_sender, candidate_sender))
     }
@@ -61,7 +64,7 @@ impl Resource for Link {}
 #[rustler::nif]
 fn start_link() -> (rustler::Atom, rustler::ResourceArc<Link>) {
     let (handshake_sender, handshake_receiver) = tokio::sync::mpsc::channel::<SdpHandshake>(16);
-    let (candidate_sender, candidate_receiver) = tokio::sync::mpsc::channel::<str0m::Candidate>(16);
+    let (candidate_sender, candidate_receiver) = tokio::sync::mpsc::channel::<String>(16);
 
     spawn(main_loop(handshake_receiver, candidate_receiver));
 
@@ -97,16 +100,18 @@ fn put_new_remote_candidate(
 
 fn handle_trickle_ice(trickle_ice: String, link: rustler::ResourceArc<Link>) -> rustler::Atom {
     match serde_json::from_str::<str0m::Candidate>(&trickle_ice) {
-        Ok(candidate) => {
+        Ok(_) => {
             spawn(async move {
                 link.1
-                    .send(candidate)
+                    .send(trickle_ice)
                     .await
                     .expect("sending remote candidate");
             });
         }
 
-        Err(_) => {}
+        Err(_) => {
+            error!("could not deserialize candidate {trickle_ice}");
+        }
     }
 
     ok()
@@ -145,7 +150,7 @@ fn put_new_client(
 
 async fn main_loop(
     mut handshake_receiver: tokio::sync::mpsc::Receiver<SdpHandshake>,
-    mut candidate_receiver: tokio::sync::mpsc::Receiver<str0m::Candidate>,
+    mut candidate_receiver: tokio::sync::mpsc::Receiver<String>,
 ) {
     // socket stuff
     let socket = tokio::net::UdpSocket::bind(format!(
@@ -165,17 +170,27 @@ async fn main_loop(
         loop_candidate_receiver,
     ));
 
+    spawn(async move {
+        loop {
+            match candidate_receiver.recv().await {
+                Some(trickle_ice) => {
+                    loop_candidate_sender.send(trickle_ice).await.unwrap();
+                }
+
+                None => {}
+            }
+        }
+    });
+
     loop {
-        match handshake_receiver.try_recv() {
-            Ok(SdpHandshake(_client_type, sdp_offer, tx)) => {
+        match handshake_receiver.recv().await {
+            Some(SdpHandshake(_client_type, sdp_offer, tx)) => {
                 let rtc = process_sdp(sdp_offer, addr, tx).await.unwrap();
 
                 loop_handshake_sender.send(rtc).await.unwrap();
             }
 
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
-
-            Err(_) => {}
+            None => {}
         }
     }
 }
@@ -206,6 +221,8 @@ async fn process_sdp(
 }
 
 fn load(env: rustler::Env, _: rustler::Term) -> bool {
+    env_logger::init();
+
     env.register::<Link>().is_ok()
 }
 
@@ -214,7 +231,7 @@ rustler::init!("Elixir.Floe.SFU", load = load);
 async fn run(
     socket: tokio::net::UdpSocket,
     mut rx: tokio::sync::mpsc::Receiver<str0m::Rtc>,
-    mut rx2: tokio::sync::mpsc::Receiver<str0m::Candidate>,
+    mut rx2: tokio::sync::mpsc::Receiver<String>,
 ) -> Result<(), str0m::RtcError> {
     let mut clients: Vec<Client> = vec![];
     let mut to_propagate: std::collections::VecDeque<Propagated> =
@@ -223,6 +240,15 @@ async fn run(
 
     loop {
         clients.retain(|c| c.rtc.is_alive());
+
+        if let Some(trickle_ice) = new_remote_candidate(&mut rx2).await {
+            for client in clients.iter_mut() {
+                // TODO: optimize
+                let candidate = serde_json::from_str::<str0m::Candidate>(&trickle_ice).unwrap();
+
+                client.handle_new_candidate(candidate);
+            }
+        }
 
         if let Some(mut client) = spawn_new_client(&mut rx).await {
             for track in clients.iter().flat_map(|c| c.tracks_in.iter()) {
@@ -254,6 +280,14 @@ async fn run(
         for client in &mut clients {
             client.handle_input(str0m::Input::Timeout(now));
         }
+    }
+}
+
+async fn new_remote_candidate(rx: &mut tokio::sync::mpsc::Receiver<String>) -> Option<String> {
+    match rx.try_recv() {
+        Ok(candidate) => Some(candidate),
+        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => None,
+        _ => panic!("receiver disconnected"),
     }
 }
 

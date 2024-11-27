@@ -9,8 +9,6 @@ defmodule FloeWeb.ApiController do
 
     {:ok, link} = Floe.SFU.start_link()
 
-    IO.inspect(link)
-
     :ok = GenServer.cast(Floe.Registry, {:insert, stream_id, link})
     {:ok, sdp_answer} = Floe.SFU.put_new_whip_client(sdp_offer, link)
 

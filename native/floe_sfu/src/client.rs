@@ -75,6 +75,14 @@ impl Client {
         self.rtc.accepts(input)
     }
 
+    pub fn handle_new_candidate(&mut self, candidate: str0m::Candidate) {
+        if !self.rtc.is_alive() {
+            return;
+        }
+
+        self.rtc.add_remote_candidate(candidate);
+    }
+
     pub fn handle_input(&mut self, input: str0m::Input) {
         if !self.rtc.is_alive() {
             return;
