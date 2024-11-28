@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use log::error;
+use log::{error, info};
 
 #[derive(Debug)]
 pub struct Client {
@@ -130,7 +130,7 @@ impl Client {
                     Ok(_) => {}
 
                     Err(e) => {
-                        error!("{e}");
+                        error!("{} {e}", socket.local_addr().unwrap());
                     }
                 }
 
@@ -142,6 +142,7 @@ impl Client {
                     if v == str0m::IceConnectionState::Disconnected {
                         self.rtc.disconnect();
                     }
+                    info!("{:?}", v);
                     Propagated::Noop
                 }
                 str0m::Event::MediaAdded(e) => self.handle_media_added(e.mid, e.kind).await,
@@ -154,7 +155,10 @@ impl Client {
                 str0m::Event::MediaIngressStats(_data) => Propagated::Noop,
                 str0m::Event::MediaEgressStats(_data) => Propagated::Noop,
                 str0m::Event::PeerStats(_data) => Propagated::Noop,
-                _ => Propagated::Noop,
+                e => {
+                    info!("{:?}", e);
+                    Propagated::Noop
+                }
             },
         }
     }
