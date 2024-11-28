@@ -99,8 +99,6 @@ fn put_new_remote_candidate(
 fn handle_trickle_ice(trickle_ice: String, link: rustler::ResourceArc<Link>) -> rustler::Atom {
     match serde_json::from_str::<str0m::Candidate>(&trickle_ice) {
         Ok(candidate) => {
-            info!("new candidate {:?}", candidate);
-
             spawn(async move {
                 match link.1.send(trickle_ice).await {
                     Ok(_) => {}
@@ -175,8 +173,6 @@ async fn main_loop(
         loop {
             match candidate_receiver.recv().await {
                 Some(trickle_ice) => {
-                    info!("new candidate {:?}", trickle_ice);
-
                     loop_candidate_sender.send(trickle_ice).await.unwrap();
                 }
 
@@ -242,13 +238,14 @@ async fn run(
     let mut buf = vec![0; 2000];
 
     loop {
-        clients.retain(|c| c.rtc.is_alive());
+        // clients.retain(|c| c.rtc.is_alive());
 
         if let Some(trickle_ice) = new_remote_candidate(&mut rx2).await {
             for client in clients.iter_mut() {
-                // TODO: optimize
                 let candidate = serde_json::from_str::<str0m::Candidate>(&trickle_ice).unwrap();
-                info!("new candidate {:?}", candidate);
+
+                info!("new candidate {:?} for client {:?}", candidate, client);
+
                 client.handle_new_candidate(candidate);
             }
         }
@@ -289,7 +286,9 @@ async fn run(
 async fn new_remote_candidate(rx: &mut tokio::sync::mpsc::Receiver<String>) -> Option<String> {
     match rx.try_recv() {
         Ok(candidate) => Some(candidate),
+
         Err(tokio::sync::mpsc::error::TryRecvError::Empty) => None,
+
         _ => panic!("receiver disconnected"),
     }
 }
@@ -297,7 +296,9 @@ async fn new_remote_candidate(rx: &mut tokio::sync::mpsc::Receiver<String>) -> O
 async fn spawn_new_client(rx: &mut tokio::sync::mpsc::Receiver<str0m::Rtc>) -> Option<Client> {
     match rx.try_recv() {
         Ok(rtc) => Some(Client::new(rtc)),
+
         Err(tokio::sync::mpsc::error::TryRecvError::Empty) => None,
+
         _ => panic!("receiver disconnected"),
     }
 }

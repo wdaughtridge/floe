@@ -92,7 +92,8 @@ impl Client {
 
         if let Err(e) = self.rtc.handle_input(input) {
             self.rtc.disconnect();
-            panic!("Client ({}) disconnected: {:?}", *self.id, e);
+
+            panic!("client ({}) disconnected {:?}", *self.id, e);
         }
     }
 
@@ -111,7 +112,8 @@ impl Client {
             Ok(output) => self.handle_output(output, socket).await,
             Err(e) => {
                 self.rtc.disconnect();
-                panic!("Client ({}) poll_output failed: {:?}", *self.id, e);
+
+                panic!("client ({}) poll_output failed {:?}", *self.id, e);
             }
         }
     }
@@ -142,7 +144,9 @@ impl Client {
                     if v == str0m::IceConnectionState::Disconnected {
                         self.rtc.disconnect();
                     }
+
                     info!("{:?}", v);
+
                     Propagated::Noop
                 }
                 str0m::Event::MediaAdded(e) => self.handle_media_added(e.mid, e.kind).await,
@@ -157,6 +161,7 @@ impl Client {
                 str0m::Event::PeerStats(_data) => Propagated::Noop,
                 e => {
                     info!("{:?}", e);
+
                     Propagated::Noop
                 }
             },
