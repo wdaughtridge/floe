@@ -98,7 +98,7 @@ fn put_new_remote_candidate(
 
 fn handle_trickle_ice(trickle_ice: String, link: rustler::ResourceArc<Link>) -> rustler::Atom {
     match serde_json::from_str::<str0m::Candidate>(&trickle_ice) {
-        Ok(candidate) => {
+        Ok(_) => {
             spawn(async move {
                 match link.1.send(trickle_ice).await {
                     Ok(_) => {}

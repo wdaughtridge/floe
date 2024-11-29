@@ -129,7 +129,9 @@ impl Client {
                     .send_to(&transmit.contents, transmit.destination)
                     .await
                 {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        info!("{:?}", transmit);
+                    }
 
                     Err(e) => {
                         error!("{} {e}", socket.local_addr().unwrap());
