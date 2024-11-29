@@ -66,6 +66,8 @@ fn start_link() -> (rustler::Atom, rustler::ResourceArc<Link>) {
 
     spawn(main_loop(handshake_receiver, candidate_receiver));
 
+    info!("started new main loop for stream");
+
     let link = Link::new(handshake_sender, candidate_sender);
 
     // link is passed back to BEAM to register in :ets table
@@ -99,6 +101,8 @@ fn put_new_remote_candidate(
 fn handle_trickle_ice(trickle_ice: String, link: rustler::ResourceArc<Link>) -> rustler::Atom {
     match serde_json::from_str::<str0m::Candidate>(&trickle_ice) {
         Ok(_) => {
+            info!("got a valid tricke ice candidate {trickle_ice}");
+
             spawn(async move {
                 match link.1.send(trickle_ice).await {
                     Ok(_) => {}
@@ -160,6 +164,8 @@ async fn main_loop(
     .expect("binding a random udp port");
     let addr = socket.local_addr().expect("a local socket adddress");
 
+    info!("bound address {addr}");
+
     let (loop_handshake_sender, loop_handshake_receiver) = tokio::sync::mpsc::channel(16);
     let (loop_candidate_sender, loop_candidate_receiver) = tokio::sync::mpsc::channel(16);
 
@@ -173,6 +179,8 @@ async fn main_loop(
         loop {
             match candidate_receiver.recv().await {
                 Some(trickle_ice) => {
+                    info!("got a new incoming trickle ice candidate {trickle_ice}");
+
                     loop_candidate_sender.send(trickle_ice).await.unwrap();
                 }
 
@@ -185,6 +193,8 @@ async fn main_loop(
         match handshake_receiver.recv().await {
             Some(SdpHandshake(_client_type, sdp_offer, tx)) => {
                 let rtc = process_sdp(sdp_offer, addr, tx).await.unwrap();
+
+                info!("sending new rtc instance to main stream loop");
 
                 loop_handshake_sender.send(rtc).await.unwrap();
             }
@@ -251,8 +261,11 @@ async fn run(
         }
 
         if let Some(mut client) = spawn_new_client(&mut rx).await {
+            info!("registering new client {:?}", client);
+
             for track in clients.iter().flat_map(|c| c.tracks_in.iter()) {
                 let weak = std::sync::Arc::downgrade(&track.id);
+
                 client.handle_track_open(weak).await;
             }
 
@@ -261,12 +274,16 @@ async fn run(
 
         let mut timeout = std::time::Instant::now() + std::time::Duration::from_millis(100);
         for client in clients.iter_mut() {
+            info!("polling client {:?}", client);
+
             let t = poll_until_timeout(client, &mut to_propagate, &socket).await;
+
             timeout = timeout.min(t);
         }
 
         if let Some(p) = to_propagate.pop_front() {
             propagate(&p, &mut clients).await;
+
             continue;
         }
 
