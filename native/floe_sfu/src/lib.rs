@@ -269,7 +269,7 @@ fn propagate(propagated: &Propagated, clients: &mut [Client]) {
 
         match &propagated {
             Propagated::TrackOpen(_, track_in) => client.handle_track_open(track_in.clone()),
-            Propagated::MediaData(_, data) => client.handle_media_data_out(client_id, data),
+            Propagated::MediaData(_, data) => client.handle_media_data_out(data),
             Propagated::KeyframeRequest(_, req, origin, mid_in) => {
                 // Only one origin client handles the keyframe request.
                 if *origin == client.id {
@@ -643,7 +643,7 @@ impl Client {
         self.tracks_out.push(track_out);
     }
 
-    fn handle_media_data_out(&mut self, origin: ClientId, data: &MediaData) {
+    fn handle_media_data_out(&mut self, data: &MediaData) {
         // Figure out which outgoing track maps to the incoming media data.
         let Some(mid) = self
             .tracks_out

@@ -4,7 +4,7 @@ defmodule FloeWeb.ApiController do
   def whip(conn, params) do
     stream_id = params["stream_id"]
 
-    # we expect the offer to only be SENDING data
+    # We expect the offer to only be SENDING data
     {:ok, sdp_offer, conn} = Plug.Conn.read_body(conn)
 
     {:ok, link} = Floe.SFU.start_link()
@@ -21,7 +21,7 @@ defmodule FloeWeb.ApiController do
   def whep(conn, params) do
     stream_id = params["stream_id"]
 
-    # client is requesting to only be RECEIVING data, so we should
+    # Client is requesting to only be RECEIVING data, so we should
     # see if there is already a stream started for the requested
     # stream id
     {:ok, sdp_offer, conn} = Plug.Conn.read_body(conn)
