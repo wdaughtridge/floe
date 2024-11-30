@@ -11,14 +11,10 @@ const constraints = {
   },
 };
 
-let streamCam;
-let streamMic;
 let patchEndpoint;
 let bearer;
 
 async function sendCandidate(candidate) {
-  console.log(bearer);
-
   const response = await fetch(patchEndpoint, {
     method: "PATCH",
     cache: "no-cache",
@@ -29,9 +25,7 @@ async function sendCandidate(candidate) {
     body: candidate,
   });
 
-  if (response.status === 204) {
-    console.log("Successfully sent ICE candidate:", candidate);
-  } else {
+  if (response.status !== 204) {
     console.error(
       `Failed to send ICE, status: ${response.status}, candidate:`,
       candidate,
@@ -39,34 +33,40 @@ async function sendCandidate(candidate) {
   }
 }
 
-async function startRtc(whip) {
+export async function startRtc(whip) {
+  const stream_id = document.getElementById("stream_id").value;
   const token = document.getElementById("token").value;
   bearer = `Bearer ${token}`;
 
+  let fetchUrl;
   if (whip) {
+    fetchUrl = `/api/whip?stream_id=${stream_id}`;
+
+    document.getElementById("join").disabled = true;
+
     mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
     mediaStream
       .getTracks()
       .forEach((track) => rtc.addTrack(track, mediaStream));
+    document.getElementById("feed").srcObject = mediaStream;
   } else {
+    fetchUrl = `/api/whep?stream_id=${stream_id}`;
+
+    document.getElementById("stream").disabled = true;
+
     rtc.ontrack = (e) => {
       const track = e.track;
-      const domId = `media-${track.id}`;
-      const el = document.createElement("video");
-
-      if (document.getElementById(domId)) {
-        return;
-      }
-
-      el.id = domId;
-      el.controls = true;
-      el.autoplay = true;
-      el.width = 720;
-
-      document.getElementById("media").appendChild(el);
+      const el = document.getElementById("feed");
 
       setTimeout(() => {
-        const media = new MediaStream();
+        let media;
+
+        if (el.srcObject != null) {
+          media = el.srcObject;
+        } else {
+          media = new MediaStream();
+        }
+
         media.addTrack(track);
         el.srcObject = media;
       }, 1);
@@ -80,12 +80,6 @@ async function startRtc(whip) {
       direction: "recvonly",
     });
   }
-
-  rtc.onicegatheringstatechange = () =>
-    console.log("Gathering state change: " + rtc.iceGatheringState);
-
-  rtc.onconnectionstatechange = () =>
-    console.log("Connection state change: " + rtc.connectionState);
 
   rtc.onicecandidate = (event) => {
     if (event.candidate == null) {
@@ -105,17 +99,6 @@ async function startRtc(whip) {
 
   rtc.setLocalDescription(offer);
 
-  const queryString = window.location.search;
-  const urlParams = new URLSearchParams(queryString);
-  const stream_id = urlParams.get("stream_id");
-
-  let fetchUrl;
-  if (whip) {
-    fetchUrl = `/api/whip?stream_id=${stream_id}`;
-  } else {
-    fetchUrl = `/api/whep?stream_id=${stream_id}`;
-  }
-
   const res = await fetch(fetchUrl, {
     credentials: "include",
     method: "POST",
@@ -129,7 +112,6 @@ async function startRtc(whip) {
 
   if (res.status === 201) {
     patchEndpoint = res.headers.get("location");
-    console.log("Successfully initialized connection");
   } else {
     console.error(`Failed to initialize connection, status: ${res.status}`);
     return;

@@ -152,6 +152,7 @@ fn run(socket: UdpSocket, rx: Receiver<Rtc>, rx2: Receiver<Candidate>) -> Result
             // Add incoming tracks present in other already connected clients.
             for track in clients.iter().flat_map(|c| c.tracks_in.iter()) {
                 let weak = Arc::downgrade(&track.id);
+
                 client.handle_track_open(weak);
             }
 
@@ -160,7 +161,6 @@ fn run(socket: UdpSocket, rx: Receiver<Rtc>, rx2: Receiver<Candidate>) -> Result
 
         if let Some(candidate) = handle_new_candidate(&rx2) {
             for client in clients.iter_mut() {
-                // TODO: fix this...
                 let candidate =
                     Candidate::from_sdp_string(candidate.to_sdp_string().as_str()).unwrap();
 
