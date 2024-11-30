@@ -93,7 +93,7 @@ RUN chown nobody /app
 ENV MIX_ENV="prod"
 ENV ECTO_IPV6 true
 ENV ERL_AFLAGS "-proto_dist inet6_tcp"
-ENV RUST_LOG "error,debug,info,warn,trace"
+ENV RUST_LOG "info,warn"
 
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/floe ./

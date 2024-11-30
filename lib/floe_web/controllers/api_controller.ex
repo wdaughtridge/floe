@@ -13,9 +13,8 @@ defmodule FloeWeb.ApiController do
     {:ok, sdp_answer} = Floe.SFU.put_new_whip_client(sdp_offer, link)
 
     conn
-    |> Plug.Conn.put_resp_header("Location", "/api/resource/" <> stream_id)
-    |> Plug.Conn.put_resp_header("Link", "<stun:stun.l.google.com:19302>; rel=\"ice-server\"")
     |> Plug.Conn.put_resp_header("Content-Type", "application/sdp")
+    |> Plug.Conn.put_resp_header("Location", "/api/resource/" <> stream_id)
     |> Plug.Conn.send_resp(201, sdp_answer)
   end
 
@@ -33,8 +32,8 @@ defmodule FloeWeb.ApiController do
     {:ok, sdp_answer} = Floe.SFU.put_new_whep_client(sdp_offer, link)
 
     conn
-    |> Plug.Conn.put_resp_header("Location", "/api/resource/" <> stream_id)
     |> Plug.Conn.put_resp_header("Content-Type", "application/sdp")
+    |> Plug.Conn.put_resp_header("Location", "/api/resource/" <> stream_id)
     |> Plug.Conn.send_resp(201, sdp_answer)
   end
 

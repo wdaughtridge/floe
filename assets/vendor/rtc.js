@@ -1,0 +1,148 @@
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const rtc = new RTCPeerConnection(rtcConfig);
+const candidates = [];
+const constraints = {
+  audio: {
+    echoCancellation: { exact: true },
+  },
+  video: {
+    width: 1280,
+    height: 720,
+  },
+};
+
+let streamCam;
+let streamMic;
+let patchEndpoint;
+let bearer;
+
+async function sendCandidate(candidate) {
+  console.log(bearer);
+
+  const response = await fetch(patchEndpoint, {
+    method: "PATCH",
+    cache: "no-cache",
+    headers: {
+      "Content-Type": "application/trickle-ice-sdpfrag",
+      Authorization: bearer,
+    },
+    body: candidate,
+  });
+
+  if (response.status === 204) {
+    console.log("Successfully sent ICE candidate:", candidate);
+  } else {
+    console.error(
+      `Failed to send ICE, status: ${response.status}, candidate:`,
+      candidate,
+    );
+  }
+}
+
+async function startRtc(whip) {
+  const token = document.getElementById("token").value;
+  bearer = `Bearer ${token}`;
+
+  if (whip) {
+    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    mediaStream
+      .getTracks()
+      .forEach((track) => rtc.addTrack(track, mediaStream));
+  } else {
+    rtc.ontrack = (e) => {
+      const track = e.track;
+      const domId = `media-${track.id}`;
+      const el = document.createElement("video");
+
+      if (document.getElementById(domId)) {
+        return;
+      }
+
+      el.id = domId;
+      el.controls = true;
+      el.autoplay = true;
+      el.width = 720;
+
+      document.getElementById("media").appendChild(el);
+
+      setTimeout(() => {
+        const media = new MediaStream();
+        media.addTrack(track);
+        el.srcObject = media;
+      }, 1);
+    };
+
+    rtc.addTransceiver("video", {
+      direction: "recvonly",
+    });
+
+    rtc.addTransceiver("audio", {
+      direction: "recvonly",
+    });
+  }
+
+  rtc.onicegatheringstatechange = () =>
+    console.log("Gathering state change: " + rtc.iceGatheringState);
+
+  rtc.onconnectionstatechange = () =>
+    console.log("Connection state change: " + rtc.connectionState);
+
+  rtc.onicecandidate = (event) => {
+    if (event.candidate == null) {
+      return;
+    }
+
+    const candidate = JSON.stringify(event.candidate);
+
+    if (patchEndpoint === undefined) {
+      candidates.push(candidate);
+    } else {
+      sendCandidate(candidate);
+    }
+  };
+
+  const offer = await rtc.createOffer();
+
+  rtc.setLocalDescription(offer);
+
+  const queryString = window.location.search;
+  const urlParams = new URLSearchParams(queryString);
+  const stream_id = urlParams.get("stream_id");
+
+  let fetchUrl;
+  if (whip) {
+    fetchUrl = `/api/whip?stream_id=${stream_id}`;
+  } else {
+    fetchUrl = `/api/whep?stream_id=${stream_id}`;
+  }
+
+  const res = await fetch(fetchUrl, {
+    credentials: "include",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/sdp",
+      Accept: "application/sdp",
+      Authorization: bearer,
+    },
+    body: offer.sdp,
+  });
+
+  if (res.status === 201) {
+    patchEndpoint = res.headers.get("location");
+    console.log("Successfully initialized connection");
+  } else {
+    console.error(`Failed to initialize connection, status: ${res.status}`);
+    return;
+  }
+
+  for (const candidate of candidates) {
+    sendCandidate(candidate);
+  }
+
+  const answer = await res.text();
+
+  rtc.setRemoteDescription({
+    type: "answer",
+    sdp: answer,
+  });
+}
